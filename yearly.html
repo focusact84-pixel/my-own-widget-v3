@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Workout Yearly</title>
+<link rel="stylesheet" href="./styles.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./supabase-config.js"></script>
+<script src="./app.js"></script>
+</head>
+<body>
+<div class="site">
+
+<div class="topnav">
+  <div class="brand">Workout tracker</div>
+  <div class="nav-right">
+    <div id="userBadge" class="user-badge" hidden></div>
+    <button id="signOutBtn" class="ghost" type="button" hidden>Sign out</button>
+    <div class="menu-wrap">
+      <button id="menuBtn" class="menu-btn" type="button" aria-label="Open menu">☰</button>
+      <div id="menuPanel" class="menu-panel">
+        <a class="menu-link" href="./index.html">Home</a>
+        <a class="menu-link" href="./daily.html">Daily</a>
+        <a class="menu-link" href="./weekly.html">Weekly</a>
+        <a class="menu-link" href="./monthly.html">Monthly</a>
+        <a class="menu-link" href="./yearly.html">Yearly</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="authMount"></div>
+<div id="pageContent" hidden>
+
+<div class="widget">
+  <div class="topbar">
+    <div>
+      <div class="title">Yearly workout view</div>
+      <div class="subtitle">All months at once using the same green / orange / red logic.</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button id="prevYear" class="btn" type="button">← Year</button>
+      <div id="yearLabel" class="pill"></div>
+      <button id="nextYear" class="btn" type="button">Year →</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="dot" style="background:var(--green)"></i> Complete</span>
+    <span><i class="dot" style="background:var(--orange)"></i> Partial</span>
+    <span><i class="dot" style="background:var(--red)"></i> Skipped</span>
+    <span><i class="dot" style="background:var(--empty)"></i> No plan</span>
+  </div>
+
+  <div id="months" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;"></div>
+  <div class="footer">Small yearly overview for separate Notion embedding.</div>
+</div>
+
+</div>
+</div>
+<script>
+
+initPage("./yearly.html", async (user) => {
+  let viewYear = new Date().getFullYear();
+  const monthsEl = document.getElementById("months");
+  const yearLabel = document.getElementById("yearLabel");
+
+  async function renderYear() {
+    yearLabel.textContent = String(viewYear);
+    const start = new Date(viewYear, 0, 1);
+    const end = new Date(viewYear, 11, 31);
+    const plans = await fetchPlansInRange(user.id, keyFromDate(start), keyFromDate(end));
+    monthsEl.innerHTML = "";
+
+    for (let month = 0; month < 12; month++) {
+      const card = document.createElement("div");
+      card.className = "panel";
+      const title = document.createElement("div");
+      title.className = "title";
+      title.style.fontSize = "14px";
+      title.style.marginBottom = "8px";
+      title.textContent = new Intl.DateTimeFormat(undefined, { month:"long" }).format(new Date(viewYear, month, 1));
+      card.appendChild(title);
+
+      const weekdayRow = document.createElement("div");
+      weekdayRow.style.display = "grid";
+      weekdayRow.style.gridTemplateColumns = "repeat(7,1fr)";
+      weekdayRow.style.gap = "5px";
+      weekdayRow.style.marginBottom = "5px";
+      ["S","M","T","W","T","F","S"].forEach(w => {
+        const d = document.createElement("div");
+        d.className = "subtitle";
+        d.style.textAlign = "center";
+        d.style.fontSize = "10px";
+        d.textContent = w;
+        weekdayRow.appendChild(d);
+      });
+      card.appendChild(weekdayRow);
+
+      const grid = document.createElement("div");
+      grid.style.display = "grid";
+      grid.style.gridTemplateColumns = "repeat(7,1fr)";
+      grid.style.gap = "5px";
+
+      const first = new Date(viewYear, month, 1);
+      const last = new Date(viewYear, month + 1, 0);
+
+      for (let i = 0; i < first.getDay(); i++) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.style.aspectRatio = "1 / 1";
+        empty.style.padding = "0";
+        empty.style.minHeight = "18px";
+        grid.appendChild(empty);
+      }
+
+      for (let day = 1; day <= last.getDate(); day++) {
+        const d = new Date(viewYear, month, day);
+        const info = statusForPlan(plans[keyFromDate(d)]);
+        const cell = document.createElement("div");
+        cell.style.aspectRatio = "1 / 1";
+        cell.style.borderRadius = "6px";
+        cell.style.border = "1px solid rgba(255,255,255,.08)";
+        cell.style.background = info.color;
+        cell.title = new Intl.DateTimeFormat(undefined, { month:"short", day:"numeric" }).format(d) + " — " + info.label + " (" + info.done + "/" + info.total + ")";
+        if (sameDate(d, new Date())) {
+          cell.style.outline = "2px solid rgba(59,130,246,.6)";
+          cell.style.outlineOffset = "1px";
+        }
+        grid.appendChild(cell);
+      }
+
+      card.appendChild(grid);
+      monthsEl.appendChild(card);
+    }
+  }
+
+  document.getElementById("prevYear").onclick = async () => {
+    viewYear -= 1;
+    await renderYear();
+  };
+  document.getElementById("nextYear").onclick = async () => {
+    viewYear += 1;
+    await renderYear();
+  };
+
+  await renderYear();
+});
+
+</script>
+</body>
+</html>

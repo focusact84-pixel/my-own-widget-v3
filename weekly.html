@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Workout Weekly</title>
+<link rel="stylesheet" href="./styles.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./supabase-config.js"></script>
+<script src="./app.js"></script>
+</head>
+<body>
+<div class="site">
+
+<div class="topnav">
+  <div class="brand">Workout tracker</div>
+  <div class="nav-right">
+    <div id="userBadge" class="user-badge" hidden></div>
+    <button id="signOutBtn" class="ghost" type="button" hidden>Sign out</button>
+    <div class="menu-wrap">
+      <button id="menuBtn" class="menu-btn" type="button" aria-label="Open menu">☰</button>
+      <div id="menuPanel" class="menu-panel">
+        <a class="menu-link" href="./index.html">Home</a>
+        <a class="menu-link" href="./daily.html">Daily</a>
+        <a class="menu-link" href="./weekly.html">Weekly</a>
+        <a class="menu-link" href="./monthly.html">Monthly</a>
+        <a class="menu-link" href="./yearly.html">Yearly</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="authMount"></div>
+<div id="pageContent" hidden>
+
+<div class="widget">
+  <div class="topbar">
+    <div>
+      <div class="title">Weekly workout view</div>
+      <div class="subtitle">Click a day to plan workouts ahead of time.</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button id="prevWeek" class="btn" type="button">← Week</button>
+      <div id="weekRange" class="pill"></div>
+      <button id="nextWeek" class="btn" type="button">Week →</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="dot" style="background:var(--green)"></i> Complete</span>
+    <span><i class="dot" style="background:var(--orange)"></i> Partial</span>
+    <span><i class="dot" style="background:var(--red)"></i> Skipped</span>
+    <span><i class="dot" style="background:var(--empty)"></i> No plan</span>
+  </div>
+
+  <div id="weekGrid" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;"></div>
+
+  <div id="plannerOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,.22);display:none;align-items:center;justify-content:center;padding:16px;z-index:150;">
+    <div class="panel" style="width:min(520px,100%);background:#232323;">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:12px;">
+        <div>
+          <div class="title" style="font-size:15px;">Plan workouts</div>
+          <div id="plannerDate" class="subtitle"></div>
+        </div>
+        <button id="closePlannerBtn" class="ghost" type="button">Close</button>
+      </div>
+      <div id="plannerList" style="display:grid;gap:8px;max-height:220px;overflow:auto;margin-bottom:12px;"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <input id="plannerInput" class="field" type="text" placeholder="Add workout to this day..." />
+        <button id="plannerAddBtn" class="btn" type="button">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">Days with no workouts planned show no count.</div>
+</div>
+
+</div>
+</div>
+<script>
+
+initPage("./weekly.html", async (user) => {
+  let anchor = startOfWeek(new Date());
+  let plannerKey = null;
+  let globalWorkouts = [];
+  let weekPlans = {};
+
+  const weekGrid = document.getElementById("weekGrid");
+  const weekRange = document.getElementById("weekRange");
+  const plannerOverlay = document.getElementById("plannerOverlay");
+  const plannerDate = document.getElementById("plannerDate");
+  const plannerList = document.getElementById("plannerList");
+  const plannerInput = document.getElementById("plannerInput");
+
+  async function loadWeek() {
+    globalWorkouts = await fetchGlobalWorkouts(user.id);
+    const start = startOfWeek(anchor);
+    const end = addDays(start, 6);
+    weekPlans = await fetchPlansInRange(user.id, keyFromDate(start), keyFromDate(end));
+    renderWeek();
+  }
+
+  function renderWeek() {
+    const start = startOfWeek(anchor);
+    const end = addDays(start, 6);
+    weekRange.textContent =
+      new Intl.DateTimeFormat(undefined, { month:"short", day:"numeric" }).format(start) + " – " +
+      new Intl.DateTimeFormat(undefined, { month:"short", day:"numeric" }).format(end);
+
+    weekGrid.innerHTML = "";
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(start, i);
+      const key = keyFromDate(d);
+      const info = statusForPlan(weekPlans[key]);
+      const groups = ((weekPlans[key] && weekPlans[key].groups) || []).join(", ") || "No muscle groups selected";
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "panel";
+      card.style.textAlign = "left";
+      card.style.cursor = "pointer";
+      card.style.minHeight = "130px";
+      if (sameDate(d, new Date())) {
+        card.style.outline = "2px solid rgba(59,130,246,.6)";
+        card.style.outlineOffset = "2px";
+      }
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;margin-bottom:10px;">
+          <div>
+            <div class="subtitle">${new Intl.DateTimeFormat(undefined, { weekday:"short" }).format(d)}</div>
+            <div class="title" style="font-size:16px;">${d.getDate()}</div>
+          </div>
+          <div class="pill" style="color:white;background:${info.color};border-color:transparent;">${info.label}</div>
+        </div>
+        <div class="subtitle">${info.total ? "Completed" : "No workouts planned"}</div>
+        <div class="title" style="font-size:20px;margin-top:6px;">${info.total ? (info.done + " / " + info.total) : "—"}</div>
+        <div class="subtitle" style="margin-top:8px;">${groups}</div>
+      `;
+      card.onclick = () => openPlanner(key, d);
+      weekGrid.appendChild(card);
+    }
+  }
+
+  function openPlanner(key, dateObj) {
+    plannerKey = key;
+    plannerOverlay.style.display = "flex";
+    plannerDate.textContent = formatDateLong(dateObj);
+    renderPlanner();
+  }
+
+  function closePlanner() {
+    plannerOverlay.style.display = "none";
+    plannerKey = null;
+  }
+
+  async function renderPlanner() {
+    const day = weekPlans[plannerKey] || { groups: [], planned: [], completed: [] };
+    if (!Array.isArray(day.planned)) day.planned = [];
+    plannerList.innerHTML = "";
+    globalWorkouts.forEach(label => {
+      const row = document.createElement("label");
+      row.style.display = "flex";
+      row.style.alignItems = "center";
+      row.style.gap = "10px";
+      row.style.padding = "8px 10px";
+      row.style.borderRadius = "10px";
+      row.onmouseover = () => row.style.background = "rgba(255,255,255,.06)";
+      row.onmouseout = () => row.style.background = "transparent";
+      const checked = day.planned.includes(label);
+      row.innerHTML = '<input type="checkbox" ' + (checked ? 'checked' : '') + ' style="accent-color:#16a34a" /><span>' + label + '</span>';
+      const checkbox = row.querySelector("input");
+      checkbox.onchange = async () => {
+        if (checkbox.checked) {
+          if (!day.planned.includes(label)) day.planned.push(label);
+        } else {
+          day.planned = day.planned.filter(x => x !== label);
+          day.completed = day.completed.filter(x => x !== label);
+        }
+        weekPlans[plannerKey] = day;
+        await upsertDayPlan(user.id, plannerKey, day.groups || [], day.planned || [], day.completed || []);
+        renderPlanner();
+        renderWeek();
+      };
+      plannerList.appendChild(row);
+    });
+    if (!globalWorkouts.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "No global workout labels yet. Add some from the daily page or below.";
+      plannerList.appendChild(empty);
+    }
+  }
+
+  async function addPlannerWorkout() {
+    const value = plannerInput.value.trim();
+    if (!value || !plannerKey) return;
+    if (!globalWorkouts.some(x => x.toLowerCase() === value.toLowerCase())) {
+      await addGlobalWorkout(user.id, value);
+      globalWorkouts.push(value);
+    }
+    const day = weekPlans[plannerKey] || { groups: [], planned: [], completed: [] };
+    if (!day.planned.some(x => x.toLowerCase() === value.toLowerCase())) day.planned.push(value);
+    weekPlans[plannerKey] = day;
+    await upsertDayPlan(user.id, plannerKey, day.groups || [], day.planned || [], day.completed || []);
+    plannerInput.value = "";
+    await renderPlanner();
+    renderWeek();
+  }
+
+  document.getElementById("prevWeek").onclick = async () => {
+    anchor = addDays(anchor, -7);
+    await loadWeek();
+  };
+  document.getElementById("nextWeek").onclick = async () => {
+    anchor = addDays(anchor, 7);
+    await loadWeek();
+  };
+  document.getElementById("closePlannerBtn").onclick = closePlanner;
+  plannerOverlay.onclick = (e) => { if (e.target === plannerOverlay) closePlanner(); };
+  document.getElementById("plannerAddBtn").onclick = addPlannerWorkout;
+  plannerInput.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); addPlannerWorkout(); } };
+
+  await loadWeek();
+});
+
+</script>
+</body>
+</html>

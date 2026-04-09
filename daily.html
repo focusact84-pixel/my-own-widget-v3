@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Workout Daily</title>
+<link rel="stylesheet" href="./styles.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./supabase-config.js"></script>
+<script src="./app.js"></script>
+</head>
+<body>
+<div class="site">
+
+<div class="topnav">
+  <div class="brand">Workout tracker</div>
+  <div class="nav-right">
+    <div id="userBadge" class="user-badge" hidden></div>
+    <button id="signOutBtn" class="ghost" type="button" hidden>Sign out</button>
+    <div class="menu-wrap">
+      <button id="menuBtn" class="menu-btn" type="button" aria-label="Open menu">☰</button>
+      <div id="menuPanel" class="menu-panel">
+        <a class="menu-link" href="./index.html">Home</a>
+        <a class="menu-link" href="./daily.html">Daily</a>
+        <a class="menu-link" href="./weekly.html">Weekly</a>
+        <a class="menu-link" href="./monthly.html">Monthly</a>
+        <a class="menu-link" href="./yearly.html">Yearly</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="authMount"></div>
+<div id="pageContent" hidden>
+
+<div class="widget">
+  <div class="topbar">
+    <div class="dropdown-wrap" style="position:relative;width:100%;max-width:340px;">
+      <button id="groupButton" class="btn" type="button" style="width:100%;text-align:left;">Select muscle groups</button>
+      <div id="groupPanel" class="panel" style="position:absolute;top:calc(100% + 8px);left:0;width:100%;display:none;z-index:50;background:#232323;">
+        <input id="groupSearch" class="field" type="text" placeholder="Search muscle groups..." style="margin-bottom:8px;" />
+        <div id="groupList" style="max-height:180px;overflow:auto;display:grid;gap:6px;"></div>
+      </div>
+    </div>
+    <div id="dateLabel" class="pill"></div>
+  </div>
+
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+    <button id="prevDayBtn" class="ghost" type="button">← Previous day</button>
+    <span class="subtitle" style="margin:0;">Use this to review yesterday or plan tomorrow.</span>
+    <button id="nextDayBtn" class="ghost" type="button">Next day →</button>
+  </div>
+
+  <div style="display:flex;gap:10px;margin-bottom:16px;">
+    <input id="workoutInput" class="field" type="text" placeholder="Add workout..." style="flex:1;" />
+    <button id="addWorkoutBtn" class="btn" type="button" aria-label="Add workout">+</button>
+  </div>
+
+  <div id="buttonList" style="display:grid;gap:10px;"></div>
+
+  <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+    <button id="clearDayBtn" class="ghost" type="button">Clear this day</button>
+    <button id="clearLabelsBtn" class="ghost" type="button">Clear all global workout labels</button>
+  </div>
+
+  <div class="footer">This day saves to Supabase immediately after each change.</div>
+</div>
+
+</div>
+</div>
+<script>
+
+initPage("./daily.html", async (user) => {
+  const DEFAULT_GROUPS = ["Chest", "Back", "Arms", "Abdominals", "Legs", "Shoulders"];
+  const groupButton = document.getElementById("groupButton");
+  const groupPanel = document.getElementById("groupPanel");
+  const groupSearch = document.getElementById("groupSearch");
+  const groupList = document.getElementById("groupList");
+  const dateLabel = document.getElementById("dateLabel");
+  const workoutInput = document.getElementById("workoutInput");
+  const addWorkoutBtn = document.getElementById("addWorkoutBtn");
+  const buttonList = document.getElementById("buttonList");
+  const clearDayBtn = document.getElementById("clearDayBtn");
+  const clearLabelsBtn = document.getElementById("clearLabelsBtn");
+  const prevDayBtn = document.getElementById("prevDayBtn");
+  const nextDayBtn = document.getElementById("nextDayBtn");
+
+  let viewDate = new Date();
+  let globalWorkouts = [];
+  let dayData = { groups: [], planned: [], completed: [] };
+
+  async function loadAll() {
+    globalWorkouts = await fetchGlobalWorkouts(user.id);
+    const dayKey = keyFromDate(viewDate);
+    dayData = await fetchDayPlan(user.id, dayKey);
+    if (!Array.isArray(dayData.planned) || !dayData.planned.length) {
+      dayData.planned = [...globalWorkouts];
+    }
+    renderHeader();
+    renderGroups();
+    renderWorkouts();
+  }
+
+  function renderHeader() {
+    dateLabel.textContent = formatDateLong(viewDate);
+    groupButton.textContent = dayData.groups && dayData.groups.length ? dayData.groups.join(", ") : "Select muscle groups";
+  }
+
+  function renderGroups() {
+    const q = groupSearch.value.trim().toLowerCase();
+    groupList.innerHTML = "";
+    DEFAULT_GROUPS.filter(group => group.toLowerCase().includes(q)).forEach(group => {
+      const label = document.createElement("label");
+      label.style.display = "flex";
+      label.style.alignItems = "center";
+      label.style.gap = "10px";
+      label.style.padding = "8px 10px";
+      label.style.borderRadius = "10px";
+      label.onmouseover = () => label.style.background = "rgba(255,255,255,.06)";
+      label.onmouseout = () => label.style.background = "transparent";
+      const checked = (dayData.groups || []).includes(group);
+      label.innerHTML = '<input type="checkbox" ' + (checked ? 'checked' : '') + ' style="accent-color:#16a34a" /><span>' + group + '</span>';
+      const checkbox = label.querySelector("input");
+      checkbox.addEventListener("change", async () => {
+        if (checkbox.checked) {
+          if (!dayData.groups.includes(group)) dayData.groups.push(group);
+        } else {
+          dayData.groups = dayData.groups.filter(g => g !== group);
+        }
+        await upsertDayPlan(user.id, keyFromDate(viewDate), dayData.groups, dayData.planned, dayData.completed);
+        renderHeader();
+      });
+      groupList.appendChild(label);
+    });
+  }
+
+  function renderWorkouts() {
+    buttonList.innerHTML = "";
+    if (!dayData.planned || !dayData.planned.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "No workouts planned for this day yet.";
+      buttonList.appendChild(empty);
+      return;
+    }
+    dayData.planned.forEach(label => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn" + (dayData.completed.includes(label) ? " primary" : "");
+      btn.textContent = label;
+      btn.style.width = "100%";
+      btn.style.textAlign = "left";
+      btn.style.padding = "14px";
+      btn.onclick = async () => {
+        if (dayData.completed.includes(label)) {
+          dayData.completed = dayData.completed.filter(x => x !== label);
+        } else {
+          dayData.completed.push(label);
+        }
+        await upsertDayPlan(user.id, keyFromDate(viewDate), dayData.groups, dayData.planned, dayData.completed);
+        renderWorkouts();
+      };
+      buttonList.appendChild(btn);
+    });
+  }
+
+  async function addWorkout() {
+    const value = workoutInput.value.trim();
+    if (!value) return;
+    if (!globalWorkouts.some(x => x.toLowerCase() === value.toLowerCase())) {
+      await addGlobalWorkout(user.id, value);
+      globalWorkouts.push(value);
+    }
+    if (!dayData.planned.some(x => x.toLowerCase() === value.toLowerCase())) {
+      dayData.planned.push(value);
+    }
+    await upsertDayPlan(user.id, keyFromDate(viewDate), dayData.groups, dayData.planned, dayData.completed);
+    workoutInput.value = "";
+    renderWorkouts();
+  }
+
+  groupButton.onclick = () => {
+    groupPanel.style.display = groupPanel.style.display === "none" || !groupPanel.style.display ? "block" : "none";
+    if (groupPanel.style.display === "block") {
+      groupSearch.focus();
+      renderGroups();
+    }
+  };
+  groupSearch.oninput = renderGroups;
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#groupPanel") && !e.target.closest("#groupButton")) groupPanel.style.display = "none";
+  });
+  addWorkoutBtn.onclick = addWorkout;
+  workoutInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addWorkout();
+    }
+  });
+  prevDayBtn.onclick = async () => {
+    viewDate = addDays(viewDate, -1);
+    await loadAll();
+  };
+  nextDayBtn.onclick = async () => {
+    viewDate = addDays(viewDate, 1);
+    await loadAll();
+  };
+  clearDayBtn.onclick = async () => {
+    dayData = { groups: [], planned: [], completed: [] };
+    await upsertDayPlan(user.id, keyFromDate(viewDate), [], [], []);
+    renderHeader();
+    renderGroups();
+    renderWorkouts();
+  };
+  clearLabelsBtn.onclick = async () => {
+    await deleteAllGlobalWorkouts(user.id);
+    globalWorkouts = [];
+    dayData.planned = [];
+    dayData.completed = [];
+    await upsertDayPlan(user.id, keyFromDate(viewDate), dayData.groups, [], []);
+    renderWorkouts();
+  };
+
+  await loadAll();
+});
+
+</script>
+</body>
+</html>

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Workout Monthly</title>
+<link rel="stylesheet" href="./styles.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./supabase-config.js"></script>
+<script src="./app.js"></script>
+</head>
+<body>
+<div class="site">
+
+<div class="topnav">
+  <div class="brand">Workout tracker</div>
+  <div class="nav-right">
+    <div id="userBadge" class="user-badge" hidden></div>
+    <button id="signOutBtn" class="ghost" type="button" hidden>Sign out</button>
+    <div class="menu-wrap">
+      <button id="menuBtn" class="menu-btn" type="button" aria-label="Open menu">☰</button>
+      <div id="menuPanel" class="menu-panel">
+        <a class="menu-link" href="./index.html">Home</a>
+        <a class="menu-link" href="./daily.html">Daily</a>
+        <a class="menu-link" href="./weekly.html">Weekly</a>
+        <a class="menu-link" href="./monthly.html">Monthly</a>
+        <a class="menu-link" href="./yearly.html">Yearly</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="authMount"></div>
+<div id="pageContent" hidden>
+
+<div class="widget">
+  <div class="topbar">
+    <div>
+      <div class="title">Monthly workout view</div>
+      <div class="subtitle">Calendar summary of the same daily workout data.</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button id="prevMonth" class="btn" type="button">← Month</button>
+      <div id="monthLabel" class="pill"></div>
+      <button id="nextMonth" class="btn" type="button">Month →</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="dot" style="background:var(--green)"></i> Complete</span>
+    <span><i class="dot" style="background:var(--orange)"></i> Partial</span>
+    <span><i class="dot" style="background:var(--red)"></i> Skipped</span>
+    <span><i class="dot" style="background:var(--empty)"></i> No plan</span>
+  </div>
+
+  <div id="weekdays" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;"></div>
+  <div id="monthGrid" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;"></div>
+  <div class="footer">Today is outlined in blue.</div>
+</div>
+
+</div>
+</div>
+<script>
+
+initPage("./monthly.html", async (user) => {
+  let viewDate = new Date();
+  const weekdays = document.getElementById("weekdays");
+  const monthGrid = document.getElementById("monthGrid");
+  const monthLabelEl = document.getElementById("monthLabel");
+
+  function renderWeekdays() {
+    weekdays.innerHTML = "";
+    ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(w => {
+      const el = document.createElement("div");
+      el.className = "subtitle";
+      el.style.textAlign = "center";
+      el.textContent = w;
+      weekdays.appendChild(el);
+    });
+  }
+
+  async function renderMonth() {
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth();
+    monthLabelEl.textContent = monthLabel(viewDate);
+    const first = new Date(year, month, 1);
+    const last = new Date(year, month + 1, 0);
+    const plans = await fetchPlansInRange(user.id, keyFromDate(first), keyFromDate(last));
+    monthGrid.innerHTML = "";
+
+    for (let i = 0; i < first.getDay(); i++) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.style.minHeight = "84px";
+      monthGrid.appendChild(empty);
+    }
+
+    for (let day = 1; day <= last.getDate(); day++) {
+      const d = new Date(year, month, day);
+      const info = statusForPlan(plans[keyFromDate(d)]);
+      const cell = document.createElement("div");
+      cell.className = "panel";
+      cell.style.minHeight = "84px";
+      cell.style.background = info.color;
+      cell.style.color = info.total ? "white" : "var(--text)";
+      if (sameDate(d, new Date())) {
+        cell.style.outline = "2px solid rgba(59,130,246,.6)";
+        cell.style.outlineOffset = "2px";
+      }
+      cell.innerHTML = '<div style="font-weight:700;font-size:13px;">' + day + '</div><div class="subtitle" style="color:inherit;">' + (info.total ? (info.done + '/' + info.total) : '—') + '</div>';
+      monthGrid.appendChild(cell);
+    }
+  }
+
+  document.getElementById("prevMonth").onclick = async () => {
+    viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1);
+    await renderMonth();
+  };
+  document.getElementById("nextMonth").onclick = async () => {
+    viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1);
+    await renderMonth();
+  };
+
+  renderWeekdays();
+  await renderMonth();
+});
+
+</script>
+</body>
+</html>
